@@ -3,6 +3,8 @@ import numpy as np
 import re
 from agent import Duelling_DDQNAgent
 import argparse
+from memory import RandomMemory 
+
 
 def createDeck():
     """ Creates a default deck which contains all 52 cards and returns it. """
@@ -53,12 +55,13 @@ def natural_keys(text):
 
 
 class Game(object):
-    def __init__(self, deck):
+    def __init__(self, args, deck):
         self.player1 = Player(True)
         self.player2 = Player(False)
         self.current_trumph = None
         self.deck = deck 
         self.play_game = True
+        self.size = args.state_size
      
     def reset_round(self, round_idx):
         """ round_idx indicates the amount of cards each player gets 
@@ -121,19 +124,20 @@ class Game(object):
         self.player2.estimate_wins = action2
         self.differnce_estimate = self.round_idx - action1 - action2
         
-    def create_state_vector(self):
+    def create_state_vector(self, estimate):
         # create a state vector # first 52 are the cards(1 has card 0 does not)
         # 51 # set trumph card to 2 
         # 52 plays the first card
         # 53 current estimate 
         # 54 current wins
         # 55 to many wins estimate 1, equal 0 to less -1
+        # 56 estimate 1 else 0
         key_list = []
         for key in self.deck.keys():
             key_list.append(key)
         print("create vector")
-        state_vector_1 =  np.zeros(56)
-        state_vector_2 =  np.zeros(56)
+        state_vector_1 =  np.zeros(self.size)
+        state_vector_2 =  np.zeros(self.size)
         for card in self.player1.current_cards:
             state_vector_1[key_list.index(card)] = 1
         state_vector_1[key_list.index(self.current_trumph[2:-2])] = 2
@@ -141,6 +145,8 @@ class Game(object):
         state_vector_1[53] = self.player1.estimate_wins
         state_vector_1[54] = self.player1.current_wins
         state_vector_1[55] = self.differnce_estimate
+        state_vector_1[56] = estimate
+        
         for card in self.player2.current_cards:
             state_vector_2[key_list.index(card)] = 1
         state_vector_2[key_list.index(self.current_trumph[2:-2])] = 2
@@ -148,7 +154,9 @@ class Game(object):
         state_vector_2[53] = self.player2.estimate_wins
         state_vector_2[54] = self.player2.current_wins
         state_vector_2[55] = self.differnce_estimate
-        return state_vector_1, state_vector_2
+        state_vector_2[56] = estimate
+
+        return torch.Tensor(state_vector_1), torch.Tensor(state_vector_2)
     
     def play_cards(self, player1_card, player2_card, round_idx):
         """ compare cards and set winner of the current round
@@ -248,33 +256,36 @@ class Game(object):
 
 def main(args):
     epochs = 1
-    agent1_estimate_all =[Duelling_DDQNAgent(arg, 56, 1), Duelling_DDQNAgent(arg, 56, 2)]
+    agent1_est =[Duelling_DDQNAgent(arg, args.state_size, 1), Duelling_DDQNAgent(arg, args.state_size, 2)]
+    agent2_est =[Duelling_DDQNAgent(arg, args.state_size, 1), Duelling_DDQNAgent(arg, args.state_size, 2)]
+    agent1_buffer = [RandomMemory(args.buffer_size, args.buffer_size), RandomMemory(args.buffer_size, args.buffer_size)]
+    agent2_buffer = [RandomMemory(args.buffer_size, args.buffer_size), RandomMemory(args.buffer_size, args.buffer_size)]
     deck = createDeck()
     for ep in range(epochs):
         for i in range(1,3):
-            game = Game(deck)
+            game = Game(args, deck)
             print("start game with {} cards".format(i))
             buffer_1 = []
             buffer_2 = []
             game.reset_round(i)
-            game.set_estimate(np.random.randint(i), np.random.randint(i))
-            state_agent1, state_agent2 = game.create_state_vector()
+            state_agent1, state_agent2 = game.create_state_vector(1)
+            game.set_estimate(agent1_est[i-1].act_e_greedy(state_agent1), agent2_est[i-1].act_e_greedy(state_agent2))
             while game.play_game:
                 action_1  = np.random.randint(len(game.player1.current_cards))
                 action_2 = np.random.randint(len(game.player2.current_cards))
                 game.play_cards(action_1, action_2, i)
-                next_state_agent1, next_state_agent2 = game.create_state_vector()
+                next_state_agent1, next_state_agent2 = game.create_state_vector(0)
                 buffer_1.append([state_agent1, action_1, next_state_agent1,game.done])
                 buffer_2.append([state_agent2, action_2, next_state_agent2, game.done])
                 state_agent1 = next_state_agent1
                 state_agent2 = next_state_agent2 
-            game.evalute_game(buffer_1, buffer_2)
+            buffer_1, buffer_2 = game.evalute_game(buffer_1, buffer_2)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Rainbow')
     parser.add_argument('--seed', type=int, default=0, help='Random seed')
-    parser.add_argument('--disable-cuda', action='store_true', help='Disable CUDA')
+    parser.add_argument('--state_size', type=int, default=58, help='Disable CUDA')
     parser.add_argument('--T-max', type=int, default=int(1000), metavar='STEPS', help='Number of training steps (4x number of frames)')
     parser.add_argument('--history-length', type=int, default=1, metavar='T', help='Number of consecutive states processed')
     parser.add_argument('--hidden-size-1', type=int, default=128, metavar='SIZE', help='Network hidden size')
