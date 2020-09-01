@@ -1,4 +1,5 @@
 import numpy as np
+import re
 
 def createDeck():
     """ Creates a default deck which contains all 52 cards and returns it. """
@@ -7,10 +8,10 @@ def createDeck():
     deck2 = ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'R10', 'R11', 'R12', 'R13']
     deck3 = ['Y1', 'Y2', 'Y3', 'Y4', 'Y5', 'Y6', 'Y7', 'Y8', 'Y9', 'Y10', 'Y11', 'Y12', 'Y13']
     values = range(1,14)
-    deck_dict = {}
-    deck_dict2 = {}
-    deck_dict3 = {}
-    deck_dict4 = {}
+    deck_dict = {} 
+    deck_dict2 = {} 
+    deck_dict3 = {} 
+    deck_dict4 = {} 
     for d, v in zip(deck, values):
         deck_dict.update({d:v})
 
@@ -33,13 +34,19 @@ class Player:
         self.estimate_wins = 0
         self.current_cards = []
         self.token = token
-
+    
     def set_cards(self, cards):
-        self.current_cards = list(cards)
-
+        self.current_cards = cards
+        print(self.current_cards)
+        
     def set_estimate(self, action):
         self.estimate_wins = action
 
+
+def atoi(text):
+    return int(text) if text.isdigit() else text
+def natural_keys(text):
+    return [ atoi(c) for c in re.split('(\d+)',text) ]
 
 
 class Game(object):
@@ -47,24 +54,28 @@ class Game(object):
         self.player1 = Player(True)
         self.player2 = Player(False)
         self.current_trumph = None
-        self.deck = deck
+        self.deck = deck 
         self.play_game = True
-
+     
     def reset_round(self, round_idx):
-        """ round_idx indicates the amount of cards each player gets
+        """ round_idx indicates the amount of cards each player gets 
             and which player starts to tell how many wins he expect to make
             it also the constrant for the last player is (not allowed) to say how many
-
+        
         """
         self.round_idx = round_idx
         self.differnce_estimate = 0
         key_list = []
-        for key in deck.keys():
+        for key in self.deck.keys():
             key_list.append(key)
-        cards1 =  np.random.choice(key_list, size=round_idx)
+        cards1 =  np.random.choice(key_list, size=round_idx, replace=False)
         [key_list.remove(card) for card in cards1]
-        cards2 =  np.random.choice(key_list, size=round_idx)
+        cards1 = list(cards1)
+        cards1.sort(key=natural_keys)
+        cards2 =  np.random.choice(key_list, size=round_idx, replace=False)
         [key_list.remove(card) for card in cards2]
+        cards2 = list(cards1)
+        cards2.sort(key=natural_keys)
         self.player1.set_cards(cards1)
         self.player2.set_cards(cards2)
         self.current_trumph = str(np.random.choice(key_list, size=1))
@@ -72,40 +83,62 @@ class Game(object):
             self.player2.token = True
         else:
             self.player2.token = False
-
+            
+    def evalute_game(self):
+        """ If game is over add score to the player """
+        
+        if self.player1.current_wins == self.player1.estimate_wins:
+            self.player1.score += 20 + (10 * self.player1.current_wins)
+        
+        if self.player2.current_wins == self.player2.estimate_wins:
+            self.player2.score += 20 + (10 * self.player2.current_wins)
+        
+        print("Player 1 score {}".format(self.player1.score))
+        print("Player 2 score {}".format(self.player2.score))
+    
     def set_estimate(self, action1, action2):
-        """
-
+        """ 
+        
         """
         self.player1.estimate_wins = action1
         self.player2.estimate_wins = action2
         self.differnce_estimate = self.round_idx - action1 - action2
-
+        
     def create_state_vector(self):
         # create a state vector # first 52 are the cards(1 has card 0 does not)
-        # 51 # set trumph card to 2
+        # 51 # set trumph card to 2 
         # 52 plays the first card
-        # 53 current estimate
+        # 53 current estimate 
         # 54 current wins
         # 55 to many wins estimate 1, equal 0 to less -1
         key_list = []
-        for key in deck.keys():
+        for key in self.deck.keys():
             key_list.append(key)
-        state_vector_1 =  np.zeros(55)
-        state_vector_2 =  np.zeros(55)
-        for card in game.player1.current_cards:
-            state_vector[key_list.index(card)] = 1
-        state_vector_1[key_list.index(self.current_trumph)] = 2
+        print("create vector")
+        state_vector_1 =  np.zeros(56)
+        state_vector_2 =  np.zeros(56)
+        for card in self.player1.current_cards:
+            state_vector_1[key_list.index(card)] = 1
+        state_vector_1[key_list.index(self.current_trumph[2:-2])] = 2
         state_vector_1[52] = 1 - self.player2.token
         state_vector_1[53] = self.player1.estimate_wins
         state_vector_1[54] = self.player1.current_wins
-
+        state_vector_1[55] = self.differnce_estimate
+        for card in self.player2.current_cards:
+            state_vector_2[key_list.index(card)] = 1
+        state_vector_2[key_list.index(self.current_trumph[2:-2])] = 2
+        state_vector_2[52] = 0 + self.player2.token
+        state_vector_2[53] = self.player2.estimate_wins
+        state_vector_2[54] = self.player2.current_wins
+        state_vector_2[55] = self.differnce_estimate
+        return state_vector_1, state_vector_2
+    
     def play_cards(self, player1_card, player2_card, round_idx):
         """ compare cards and set winner of the current round
             if round is mod 2 the player 2 starts else player 1
         """
         # remove cards form playershand
-
+        
         self.player1.current_cards.remove(player1_card)
         self.player2.current_cards.remove(player2_card)
         if len(self.player1.current_cards) == 0:
@@ -128,7 +161,7 @@ class Game(object):
                 if player1_card[0] == current_trumph:
                     # check which is higher and set winner
                     if int(player1_card[1:]) > int(player2_card[1:]):
-
+                        
                         self.player1.current_wins += 1
                         self.player2.token = False
                     else:
@@ -144,7 +177,7 @@ class Game(object):
                 if played_color == player1_card[0]:
                     # check how is higher
                     if int(player1_card[1:]) > int(player2_card[1:]):
-
+                        
                         self.player1.current_wins += 1
                         self.player2.token = False
                     else:
@@ -154,7 +187,7 @@ class Game(object):
                     # different cards player2 wins
                     self.player2.token = True
                     self.player2.current_wins +=1
-
+                    
         else:
             played_color = player1_card[0]
             if played_color == current_trumph:
@@ -186,8 +219,30 @@ class Game(object):
                     self.player2.token = False
                     self.player1.current_wins +=1
         print("player 1 wins {} player2 wins {}".format(self.player1.current_wins, self.player2.current_wins))
+                    
+                
+       
 
 
 
+def main():
+    epochs = 100
+    replay_buffer = []
+    deck = createDeck()
+    for ep in range(epochs):
+        for i in range(1,3):
+            game = Game(deck)
+            print("start game with {} cards".format(i))
+            game.reset_round(i)
+            game.set_estimate(np.random.randint(i), np.random.randint(i))
+            while game.play_game:
+                action_1  = game.player1.current_cards[np.random.randint(len(game.player1.current_cards))]
+                action_2  = game.player2.current_cards[np.random.randint(len(game.player1.current_cards))]
+                game.play_cards(action_1, action_2, i)
+                state_agent1, state_agent2 = game.create_state_vector()
+                replay_buffer.append((state_agent1, state_agent2))
+            game.evalute_game()
 
 
+if __name__ == "__main__":
+    main()
