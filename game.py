@@ -138,18 +138,22 @@ class Game(object):
         print("create vector")
         state_vector_1 =  np.zeros(self.size)
         state_vector_2 =  np.zeros(self.size)
-        for card in self.player1.current_cards:
-            state_vector_1[key_list.index(card)] = 1
-        state_vector_1[key_list.index(self.current_trumph[2:-2])] = 2
+        state_vector_1 -= 1
+        state_vector_2 -= 1
+
+        for idx, card in enumerate(self.player1.current_cards):
+            state_vector_1[key_list.index(card)] = idx
+        
+        state_vector_1[key_list.index(self.current_trumph[2:-2])] = -2
         state_vector_1[52] = 1 - self.player2.token
         state_vector_1[53] = self.player1.estimate_wins
         state_vector_1[54] = self.player1.current_wins
         state_vector_1[55] = self.differnce_estimate
         state_vector_1[56] = estimate
         
-        for card in self.player2.current_cards:
-            state_vector_2[key_list.index(card)] = 1
-        state_vector_2[key_list.index(self.current_trumph[2:-2])] = 2
+        for idx, card in enumerate(self.player2.current_cards):
+            state_vector_2[key_list.index(card)] = idx
+        state_vector_2[key_list.index(self.current_trumph[2:-2])] = -2
         state_vector_2[52] = 0 + self.player2.token
         state_vector_2[53] = self.player2.estimate_wins
         state_vector_2[54] = self.player2.current_wins
@@ -258,6 +262,8 @@ def main(args):
     epochs = 1
     agent1_est =[Duelling_DDQNAgent(arg, args.state_size, 1), Duelling_DDQNAgent(arg, args.state_size, 2)]
     agent2_est =[Duelling_DDQNAgent(arg, args.state_size, 1), Duelling_DDQNAgent(arg, args.state_size, 2)]
+    agent1_act =[Duelling_DDQNAgent(arg, args.state_size, 1)]
+    agent2_act =[Duelling_DDQNAgent(arg, args.state_size, 1)]
     agent1_buffer = [RandomMemory(args.buffer_size, args.buffer_size), RandomMemory(args.buffer_size, args.buffer_size)]
     agent2_buffer = [RandomMemory(args.buffer_size, args.buffer_size), RandomMemory(args.buffer_size, args.buffer_size)]
     deck = createDeck()
@@ -269,10 +275,17 @@ def main(args):
             buffer_2 = []
             game.reset_round(i)
             state_agent1, state_agent2 = game.create_state_vector(1)
+            print("state", state_agent1)
             game.set_estimate(agent1_est[i-1].act_e_greedy(state_agent1), agent2_est[i-1].act_e_greedy(state_agent2))
             while game.play_game:
-                action_1  = np.random.randint(len(game.player1.current_cards))
-                action_2 = np.random.randint(len(game.player2.current_cards))
+                # action_1  = np.random.randint(len(game.player1.current_cards))
+                # if only on card to play
+                if len(game.player1.current_cards) == 1:
+                    action_1 = 0
+                    action_2 = 0
+                else:
+                    action_1  = agent1_est[i - 2].act_e_greedy(state_agent1)
+                    action_2  = agent2_est[i - 2].act_e_greedy(state_agent2)
                 game.play_cards(action_1, action_2, i)
                 next_state_agent1, next_state_agent2 = game.create_state_vector(0)
                 buffer_1.append([state_agent1, action_1, next_state_agent1,game.done])
