@@ -1,5 +1,8 @@
+import torch
 import numpy as np
 import re
+from agent import Duelling_DDQNAgent
+import argparse
 
 def createDeck():
     """ Creates a default deck which contains all 52 cards and returns it. """
@@ -83,8 +86,9 @@ class Game(object):
             self.player2.token = True
         else:
             self.player2.token = False
-            
-    def evalute_game(self):
+        self.done = 0
+
+    def evalute_game(self, buffer_1, buffer_2):
         """ If game is over add score to the player """
         
         if self.player1.current_wins == self.player1.estimate_wins:
@@ -95,6 +99,19 @@ class Game(object):
         
         print("Player 1 score {}".format(self.player1.score))
         print("Player 2 score {}".format(self.player2.score))
+        buffer_1_updated = []
+        for traj in buffer_1:
+            traj.append(self.player1.score)
+            buffer_1_updated.append(traj)
+        
+        print(len(buffer_1_updated[0]))
+        
+        buffer_2_updated = []
+        for traj in buffer_2:
+            traj.append(self.player2.score)
+            buffer_2_updated.append(traj)
+
+        return buffer_1_updated, buffer_2_updated
     
     def set_estimate(self, action1, action2):
         """ 
@@ -138,15 +155,19 @@ class Game(object):
             if round is mod 2 the player 2 starts else player 1
         """
         # remove cards form playershand
-        
+         
+        player1_card  = self.player1.current_cards[player1_card]
+        player2_card  = self.player2.current_cards[player2_card]
         self.player1.current_cards.remove(player1_card)
         self.player2.current_cards.remove(player2_card)
         if len(self.player1.current_cards) == 0:
             self.play_game = False
+        
+        self.done = 0 + self.play_game
         current_trumph = self.current_trumph[2]
         player1_card = str(player1_card)
         player2_card = str(player2_card)
-        print("player 2 stars", )
+        print("player 2 stars")
         print("current trump", current_trumph)
         print("play1 card ", player1_card)
         print("play2 card ", player2_card)
@@ -225,24 +246,59 @@ class Game(object):
 
 
 
-def main():
-    epochs = 100
-    replay_buffer = []
+def main(args):
+    epochs = 1
+    agent1_estimate_all =[Duelling_DDQNAgent(arg, 56, 1), Duelling_DDQNAgent(arg, 56, 2)]
     deck = createDeck()
     for ep in range(epochs):
         for i in range(1,3):
             game = Game(deck)
             print("start game with {} cards".format(i))
+            buffer_1 = []
+            buffer_2 = []
             game.reset_round(i)
             game.set_estimate(np.random.randint(i), np.random.randint(i))
+            state_agent1, state_agent2 = game.create_state_vector()
             while game.play_game:
-                action_1  = game.player1.current_cards[np.random.randint(len(game.player1.current_cards))]
-                action_2  = game.player2.current_cards[np.random.randint(len(game.player1.current_cards))]
+                action_1  = np.random.randint(len(game.player1.current_cards))
+                action_2 = np.random.randint(len(game.player2.current_cards))
                 game.play_cards(action_1, action_2, i)
-                state_agent1, state_agent2 = game.create_state_vector()
-                replay_buffer.append((state_agent1, state_agent2))
-            game.evalute_game()
+                next_state_agent1, next_state_agent2 = game.create_state_vector()
+                buffer_1.append([state_agent1, action_1, next_state_agent1,game.done])
+                buffer_2.append([state_agent2, action_2, next_state_agent2, game.done])
+                state_agent1 = next_state_agent1
+                state_agent2 = next_state_agent2 
+            game.evalute_game(buffer_1, buffer_2)
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description='Rainbow')
+    parser.add_argument('--seed', type=int, default=0, help='Random seed')
+    parser.add_argument('--disable-cuda', action='store_true', help='Disable CUDA')
+    parser.add_argument('--T-max', type=int, default=int(1000), metavar='STEPS', help='Number of training steps (4x number of frames)')
+    parser.add_argument('--history-length', type=int, default=1, metavar='T', help='Number of consecutive states processed')
+    parser.add_argument('--hidden-size-1', type=int, default=128, metavar='SIZE', help='Network hidden size')
+    parser.add_argument('--hidden-size-2', type=int, default=64, metavar='SIZE', help='Network hidden size')
+    parser.add_argument('--noisy-std', type=float, default=0.1, metavar='sigma', help='Initial standard deviation of noisy linear layers')
+    parser.add_argument('--buffer-size', type=int, default=int(1e6), metavar='CAPACITY', help='Experience replay memory capacity')
+    parser.add_argument('--replay-frequency', type=int, default=10, metavar='k', help='Frequency of sampling from memory')
+    parser.add_argument('--priority-exponent', type=float, default=0.8, metavar='omega', help='Prioritised experience replay exponent (originally denoted alpha)')
+    parser.add_argument('--priority-weight', type=float, default=0.8, metavar='beata', help='Initial prioritised experience replay importance sampling weight')
+    parser.add_argument('--multi-step', type=int, default=7, metavar='n', help='Number of steps for multi-step return')
+    parser.add_argument('--discount', type=float, default=0.99, metavar='gamma', help='Discount factor')
+    parser.add_argument('--target-update', type=int, default=int(4), metavar='tau', help='Number of steps after which to update target network')
+    parser.add_argument('--reward-clip', type=int, default=0, metavar='VALUE', help='Reward clipping (0 to disable)')
+    parser.add_argument('--lr', type=float, default=5e-4, metavar='mue', help='Learning rate')
+    parser.add_argument('--tau', type=float, default=1e-3, metavar='eps', help='Adam epsilon')
+    parser.add_argument('--batch_size', type=int, default=64, metavar='SIZE', help='Batch size')
+    parser.add_argument('--learn-start', type=int, default=int(800), metavar='STEPS', help='Number of steps before starting training')
+    parser.add_argument('--evaluate', action='store_true', help='Evaluate only')
+    parser.add_argument('--evaluation-interval', type=int, default=1000, metavar='STEPS', help='Number of training steps between evaluations')
+    parser.add_argument('--evaluation-episodes', type=int, default=10, metavar='N', help='Number of evaluation episodes to average over')
+    parser.add_argument('--evaluation-size', type=int, default=50000, metavar='N', help='Number of transitions to use for validating Q')
+    parser.add_argument('--update-every', default=10000)
+    parser.add_argument('--eps_decay', type=float, default=0.99)
+    parser.add_argument('--n_episodes', default=2000)
+    parser.add_argument('--device', default='cuda')
+    arg = parser.parse_args() 
+    main(arg)

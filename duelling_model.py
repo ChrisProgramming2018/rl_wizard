@@ -16,7 +16,7 @@ class DuelingDQN(nn.Module):
             param3: (int) Nodes hidden layer 1
             param4: (int) Nodes hidden layer 2
         """
-        super(DuellingQNN, self).__init__()
+        super(DuelingDQN, self).__init__()
         self.linear1 = nn.Linear(state_size, hidden_size1)
         self.linear2 = nn.Linear(hidden_size1, hidden_size2)
 

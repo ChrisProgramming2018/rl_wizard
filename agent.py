@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
-from duelling_model import DuellingQNN
+from duelling_model import DuelingDQN
 
 
 
@@ -31,8 +31,8 @@ class Duelling_DDQNAgent(object):
         self.device = args.device
         # Q-Network
         if torch.cuda.is_available():
-            self.qnetwork_local = DuellingQNN(state_size, action_size, args.hidden_size_1, args.hidden_size_2, args.seed)
-            self.qnetwork_target = DuellingQNN(state_size, action_size, args.hidden_size_1, args.hidden_size_2, args.seed)
+            self.qnetwork_local = DuelingDQN(state_size, action_size, args.hidden_size_1, args.hidden_size_2)
+            self.qnetwork_target = DuelingDQN(state_size, action_size, args.hidden_size_1, args.hidden_size_2)
         self.optimizer = optim.Adam(self.qnetwork_local.parameters(), lr=self.lr)
 
         # Initialize time step (for updating every UPDATE_EVERY steps)
