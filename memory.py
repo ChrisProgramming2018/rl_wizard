@@ -14,8 +14,8 @@ class RandomMemory(object):
 
     def add(self, state, action, reward, newstate, done):
         if self.current_size < self.max_size:
-            self.data.append((state, int(action), reward, newstate, not done))
-            #self.data.append((state.data.numpy(),action,reward,newstate,done))
+            self.data.append([state, int(action), reward, newstate, not done])
+            #self.data.append((state,action,reward,newstate,done))
             self.current_size += 1
         else: # pop the oldest element
             self.data.popleft()
@@ -23,10 +23,41 @@ class RandomMemory(object):
     
     def get_batch(self):
         batch = random.sample(self.data, self.batch_size)
-        batch = np.array(batch)
-        state = Variable(torch.cat(batch[:,0]))
-        action = torch.LongTensor(batch[:,1])
-        reward = Variable(torch.FloatTensor(batch[:,2]))
-        next_state = Variable(torch.cat(batch[:,3]))
-        not_done = Variable(torch.Tensor(batch[:,4]).float())
+        # batch = np.array(batch)
+        
+        state = []
+        for i in range(len(batch)):
+            state.append(batch[i][0].numpy())
+        state = np.array(state)
+        
+        next_state = []
+        for i in range(len(batch)):
+            next_state.append(batch[i][3].numpy())
+        next_state = np.array(next_state)
+        
+        action = []
+        for i in range(len(batch)):
+            action.append(batch[i][1])
+        action = np.array(action)
+        
+        reward = []
+        for i in range(len(batch)):
+            reward.append(batch[i][2])
+        reward = np.array(reward)
+        
+        not_done = []
+        for i in range(len(batch)):
+            not_done.append(batch[i][4])
+        not_done = np.array(not_done)
+        
+        
+    
+        
+        
+        
+        state = Variable(torch.Tensor(state))
+        action = torch.LongTensor(action)
+        reward = Variable(torch.FloatTensor(reward))
+        next_state = Variable(torch.Tensor(next_state))
+        not_done = Variable(torch.Tensor(not_done).float())
         return state, action, reward, next_state, not_done

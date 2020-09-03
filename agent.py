@@ -60,32 +60,29 @@ class Duelling_DDQNAgent(object):
             action_values = self.qnetwork_local(state)
         self.qnetwork_local.train()
         return  np.argmax(action_values.cpu().data.numpy())
+    
     def learn(self, mem):
         """Update value parameters using given batch of experience tuples.
         Args:
            param1: (mem) PER buffer
         """
-        idxs, states, actions, rewards, next_states, nonterminals, weights = mem.sample(self.batch_size)
+        states, actions, rewards, next_states, nonterminals = mem.get_batch()
 
-
-        states = states.squeeze(1)
+        #states = states.squeeze(1)
         q_values = self.qnetwork_local(states)
         next_q_values = self.qnetwork_target(next_states)
-
-        next_q_values = next_q_values.squeeze(1)
+        #next_q_values = next_q_values.squeeze(1)
         q_value = q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
+        #q_value = q_values.gather(1, actions.unsqueeze(1))
         next_q_value = next_q_values.max(1)[0]
-
-        nonterminals = nonterminals.squeeze(1)
+        # nonterminals = nonterminals.squeeze(1)
 
         expected_q_value = rewards + (self.gamma * next_q_value * nonterminals)
         loss = F.mse_loss(q_value, expected_q_value)
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-        loss = (q_value - expected_q_value.detach()).pow(2) * weights
-        prios = loss + 1e-5
-        mem.update_priorities(idxs, prios.detach().cpu().numpy())  # Update priorities of sampled transitions
+        loss = (q_value - expected_q_value.detach()).pow(2)
 
         # ------------------- update target network ------------------- #
         self.soft_update()

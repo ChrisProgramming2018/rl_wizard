@@ -1,10 +1,11 @@
 import torch
 import numpy as np
 import re
+from torch.utils.tensorboard import SummaryWriter
 from agent import Duelling_DDQNAgent
 import argparse
 from memory import RandomMemory 
-
+from collections import deque
 
 def createDeck():
     """ Creates a default deck which contains all 52 cards and returns it. """
@@ -42,11 +43,13 @@ class Player:
     
     def set_cards(self, cards):
         self.current_cards = cards
-        print(self.current_cards)
+        # print(self.current_cards)
         
     def set_estimate(self, action):
         self.estimate_wins = action
 
+    def set_token(self, token):
+        self.token = token
 
 def atoi(text):
     return int(text) if text.isdigit() else text
@@ -91,7 +94,7 @@ class Game(object):
             self.player2.token = False
         self.done = 0
 
-    def evalute_game(self, buffer_1, buffer_2):
+    def evalute_game(self, buffer_1, buffer_2, writer, step):
         """ If game is over add score to the player """
         
         if self.player1.current_wins == self.player1.estimate_wins:
@@ -99,15 +102,20 @@ class Game(object):
         
         if self.player2.current_wins == self.player2.estimate_wins:
             self.player2.score += 20 + (10 * self.player2.current_wins)
-        
-        print("Player 1 score {}".format(self.player1.score))
-        print("Player 2 score {}".format(self.player2.score))
+        writer.add_scalar('Reward player 1', self.player1.score , step)
+        writer.add_scalar('Reward player 2', self.player2.score , step)
+
+        # print("Player 1 score {}".format(self.player1.score))
+        # print("Player 2 score {}".format(self.player2.score))
+        # print("Player 1 est {}".format(self.player1.estimate_wins))
+        if self.player2.estimate_wins == 1:
+            pass 
+            #print("Player 2 est {}".format(self.player2.estimate_wins))
         buffer_1_updated = []
         for traj in buffer_1:
             traj.append(self.player1.score)
             buffer_1_updated.append(traj)
         
-        print(len(buffer_1_updated[0]))
         
         buffer_2_updated = []
         for traj in buffer_2:
@@ -135,7 +143,6 @@ class Game(object):
         key_list = []
         for key in self.deck.keys():
             key_list.append(key)
-        print("create vector")
         state_vector_1 =  np.zeros(self.size)
         state_vector_2 =  np.zeros(self.size)
         state_vector_1 -= 1
@@ -179,10 +186,10 @@ class Game(object):
         current_trumph = self.current_trumph[2]
         player1_card = str(player1_card)
         player2_card = str(player2_card)
-        print("player 2 stars")
-        print("current trump", current_trumph)
-        print("play1 card ", player1_card)
-        print("play2 card ", player2_card)
+        #print("player 2 stars")
+        #print("current trump", current_trumph)
+        #print("play1 card ", player1_card)
+        #print("play2 card ", player2_card)
         if self.player2.token:
             played_color = player2_card[0]
             # case played_card is trumph
@@ -251,7 +258,7 @@ class Game(object):
                     # different cards player2 wins
                     self.player2.token = False
                     self.player1.current_wins +=1
-        print("player 1 wins {} player2 wins {}".format(self.player1.current_wins, self.player2.current_wins))
+        #print("player 1 wins {} player2 wins {}".format(self.player1.current_wins, self.player2.current_wins))
                     
                 
        
@@ -259,47 +266,72 @@ class Game(object):
 
 
 def main(args):
-    epochs = 1
-    agent1_est =[Duelling_DDQNAgent(arg, args.state_size, 1), Duelling_DDQNAgent(arg, args.state_size, 2)]
-    agent2_est =[Duelling_DDQNAgent(arg, args.state_size, 1), Duelling_DDQNAgent(arg, args.state_size, 2)]
-    agent1_act =[Duelling_DDQNAgent(arg, args.state_size, 1)]
-    agent2_act =[Duelling_DDQNAgent(arg, args.state_size, 1)]
-    agent1_buffer = [RandomMemory(args.buffer_size, args.buffer_size), RandomMemory(args.buffer_size, args.buffer_size)]
-    agent2_buffer = [RandomMemory(args.buffer_size, args.buffer_size), RandomMemory(args.buffer_size, args.buffer_size)]
+    epochs = args.epochs
+    agent1_est =[Duelling_DDQNAgent(arg, args.state_size, 2), Duelling_DDQNAgent(arg, args.state_size, 3)]
+    agent2_est =[Duelling_DDQNAgent(arg, args.state_size, 2), Duelling_DDQNAgent(arg, args.state_size, 3)]
+    agent1_act =[Duelling_DDQNAgent(arg, args.state_size, 2)]
+    agent2_act =[Duelling_DDQNAgent(arg, args.state_size, 2)]
+    agent1_buffer = [RandomMemory(args.buffer_size, args.batch_size), RandomMemory(args.buffer_size, args.batch_size)]
+    agent2_buffer = [RandomMemory(args.buffer_size, args.batch_size), RandomMemory(args.buffer_size, args.batch_size)]
     deck = createDeck()
+    total_time_steps = 0
+    pathname = "wizard"
+    tensorboard_name = str(args.locexp) + '/runs/' + pathname
+    writer = SummaryWriter(tensorboard_name)
+    scores_window1 = deque(maxlen=5000) 
+    scores_window2 = deque(maxlen=5000) 
+    #writer = SummaryWriter()
     for ep in range(epochs):
-        for i in range(1,3):
+        if ep % 1000 == 0:
+            print("epoch {} ".format(ep))
+        for i in range(1,2):
             game = Game(args, deck)
-            print("start game with {} cards".format(i))
+            # print("start game with {} cards".format(i))
             buffer_1 = []
             buffer_2 = []
             game.reset_round(i)
             state_agent1, state_agent2 = game.create_state_vector(1)
-            print("state", state_agent1)
             game.set_estimate(agent1_est[i-1].act_e_greedy(state_agent1), agent2_est[i-1].act_e_greedy(state_agent2))
             while game.play_game:
+                total_time_steps += 1
                 # action_1  = np.random.randint(len(game.player1.current_cards))
                 # if only on card to play
                 if len(game.player1.current_cards) == 1:
                     action_1 = 0
                     action_2 = 0
                 else:
-                    action_1  = agent1_est[i - 2].act_e_greedy(state_agent1)
-                    action_2  = agent2_est[i - 2].act_e_greedy(state_agent2)
+                    action_1  = agent1_act[i - 2].act_e_greedy(state_agent1)
+                    action_2  = agent2_act[i - 2].act_e_greedy(state_agent2)
                 game.play_cards(action_1, action_2, i)
                 next_state_agent1, next_state_agent2 = game.create_state_vector(0)
-                buffer_1.append([state_agent1, action_1, next_state_agent1,game.done])
+                buffer_1.append([state_agent1, action_1, next_state_agent1, game.done])
                 buffer_2.append([state_agent2, action_2, next_state_agent2, game.done])
                 state_agent1 = next_state_agent1
-                state_agent2 = next_state_agent2 
-            buffer_1, buffer_2 = game.evalute_game(buffer_1, buffer_2)
+                state_agent2 = next_state_agent2
+                # learn q function
+                if total_time_steps > args.learn_start:
+                    agent2_est[0].learn(agent2_buffer[0])
+                    #for agent, mem in  zip(agent1_est, agent1_buffer):
+                        #agent.learn(mem)
+            buffer_1, buffer_2 = game.evalute_game(buffer_1, buffer_2, writer, total_time_steps)
+            scores_window1.append(game.player1.score)
+            scores_window2.append(game.player2.score)
+            mean1 = np.mean(scores_window1)
+            mean2 = np.mean(scores_window2)
+            writer.add_scalar('Reward mean player 1', mean1 , total_time_steps)
+            writer.add_scalar('Reward mean player 2', mean2 , total_time_steps)
+            i = 0
+            for traj1, traj2 in zip(buffer_1, buffer_2):
+                agent1_buffer[i].add(traj1[0], traj1[1], traj1[4], traj1[2], traj1[3])  # state action reward newstate done
+                agent2_buffer[i].add(traj2[0], traj2[1], traj2[4], traj2[2], traj2[3])  # state action reward newstate done
+                i += 1
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Rainbow')
     parser.add_argument('--seed', type=int, default=0, help='Random seed')
     parser.add_argument('--state_size', type=int, default=58, help='Disable CUDA')
-    parser.add_argument('--T-max', type=int, default=int(1000), metavar='STEPS', help='Number of training steps (4x number of frames)')
+    parser.add_argument('--epochs', type=int, default=int(1e6), metavar='STEPS', help='Number of training steps (4x number of frames)')
     parser.add_argument('--history-length', type=int, default=1, metavar='T', help='Number of consecutive states processed')
     parser.add_argument('--hidden-size-1', type=int, default=128, metavar='SIZE', help='Network hidden size')
     parser.add_argument('--hidden-size-2', type=int, default=64, metavar='SIZE', help='Network hidden size')
@@ -315,7 +347,7 @@ if __name__ == "__main__":
     parser.add_argument('--lr', type=float, default=5e-4, metavar='mue', help='Learning rate')
     parser.add_argument('--tau', type=float, default=1e-3, metavar='eps', help='Adam epsilon')
     parser.add_argument('--batch_size', type=int, default=64, metavar='SIZE', help='Batch size')
-    parser.add_argument('--learn-start', type=int, default=int(800), metavar='STEPS', help='Number of steps before starting training')
+    parser.add_argument('--learn-start', type=int, default=int(1e4), metavar='STEPS', help='Number of steps before starting training')
     parser.add_argument('--evaluate', action='store_true', help='Evaluate only')
     parser.add_argument('--evaluation-interval', type=int, default=1000, metavar='STEPS', help='Number of training steps between evaluations')
     parser.add_argument('--evaluation-episodes', type=int, default=10, metavar='N', help='Number of evaluation episodes to average over')
@@ -323,6 +355,7 @@ if __name__ == "__main__":
     parser.add_argument('--update-every', default=10000)
     parser.add_argument('--eps_decay', type=float, default=0.99)
     parser.add_argument('--n_episodes', default=2000)
+    parser.add_argument('--locexp', type=str , default = 'sep')
     parser.add_argument('--device', default='cuda')
     arg = parser.parse_args() 
     main(arg)
