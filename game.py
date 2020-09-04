@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import re
+import sys
 from torch.utils.tensorboard import SummaryWriter
 from agent import Duelling_DDQNAgent
 import argparse
@@ -280,6 +281,10 @@ def main(args):
     writer = SummaryWriter(tensorboard_name)
     scores_window1 = deque(maxlen=5000) 
     scores_window2 = deque(maxlen=5000) 
+    eps_end = 0.05
+    eps = 1.
+    eps_decay = 0.9999
+
     #writer = SummaryWriter()
     for ep in range(epochs):
         if ep % 1000 == 0:
@@ -291,7 +296,7 @@ def main(args):
             buffer_2 = []
             game.reset_round(i)
             state_agent1, state_agent2 = game.create_state_vector(1)
-            game.set_estimate(agent1_est[i-1].act_e_greedy(state_agent1), agent2_est[i-1].act_e_greedy(state_agent2))
+            game.set_estimate(agent1_est[i-1].act_e_greedy(state_agent1, eps), agent2_est[i-1].act_e_greedy(state_agent2, eps))
             while game.play_game:
                 total_time_steps += 1
                 # action_1  = np.random.randint(len(game.player1.current_cards))
@@ -314,10 +319,15 @@ def main(args):
                     #for agent, mem in  zip(agent1_est, agent1_buffer):
                         #agent.learn(mem)
             buffer_1, buffer_2 = game.evalute_game(buffer_1, buffer_2, writer, total_time_steps)
+            eps = max(eps_end, eps_decay*eps)
             scores_window1.append(game.player1.score)
             scores_window2.append(game.player2.score)
             mean1 = np.mean(scores_window1)
             mean2 = np.mean(scores_window2)
+            text = 'Episode = {}:  P1  Avg Return = {:.2f} eps {:.2f}'
+            text = text.format(total_time_steps, mean1, eps)
+            print(text, end='\r')
+            sys.stdout.flush()
             writer.add_scalar('Reward mean player 1', mean1 , total_time_steps)
             writer.add_scalar('Reward mean player 2', mean2 , total_time_steps)
             i = 0
@@ -338,16 +348,14 @@ if __name__ == "__main__":
     parser.add_argument('--noisy-std', type=float, default=0.1, metavar='sigma', help='Initial standard deviation of noisy linear layers')
     parser.add_argument('--buffer-size', type=int, default=int(1e6), metavar='CAPACITY', help='Experience replay memory capacity')
     parser.add_argument('--replay-frequency', type=int, default=10, metavar='k', help='Frequency of sampling from memory')
-    parser.add_argument('--priority-exponent', type=float, default=0.8, metavar='omega', help='Prioritised experience replay exponent (originally denoted alpha)')
-    parser.add_argument('--priority-weight', type=float, default=0.8, metavar='beata', help='Initial prioritised experience replay importance sampling weight')
     parser.add_argument('--multi-step', type=int, default=7, metavar='n', help='Number of steps for multi-step return')
-    parser.add_argument('--discount', type=float, default=0.99, metavar='gamma', help='Discount factor')
+    parser.add_argument('--discount', type=float, default=0.999, metavar='gamma', help='Discount factor')
     parser.add_argument('--target-update', type=int, default=int(4), metavar='tau', help='Number of steps after which to update target network')
     parser.add_argument('--reward-clip', type=int, default=0, metavar='VALUE', help='Reward clipping (0 to disable)')
     parser.add_argument('--lr', type=float, default=5e-4, metavar='mue', help='Learning rate')
     parser.add_argument('--tau', type=float, default=1e-3, metavar='eps', help='Adam epsilon')
     parser.add_argument('--batch_size', type=int, default=64, metavar='SIZE', help='Batch size')
-    parser.add_argument('--learn-start', type=int, default=int(1e4), metavar='STEPS', help='Number of steps before starting training')
+    parser.add_argument('--learn-start', type=int, default=int(5000), metavar='STEPS', help='Number of steps before starting training')
     parser.add_argument('--evaluate', action='store_true', help='Evaluate only')
     parser.add_argument('--evaluation-interval', type=int, default=1000, metavar='STEPS', help='Number of training steps between evaluations')
     parser.add_argument('--evaluation-episodes', type=int, default=10, metavar='N', help='Number of evaluation episodes to average over')
