@@ -58,6 +58,13 @@ def natural_keys(text):
     return [ atoi(c) for c in re.split('(\d+)',text) ]
 
 
+def write_into_file(text, file_name='document.csv'):
+    """
+    """
+    with open(file_name,'a', newline='\n') as fd:
+        fd.write(str(text)+"\n")
+
+
 class Game(object):
     def __init__(self, args, deck):
         self.player1 = Player(True)
@@ -66,7 +73,8 @@ class Game(object):
         self.deck = deck 
         self.play_game = True
         self.size = args.state_size
-     
+        np.random.seed(args.seed)
+
     def reset_round(self, round_idx):
         """ round_idx indicates the amount of cards each player gets 
             and which player starts to tell how many wins he expect to make
@@ -84,7 +92,7 @@ class Game(object):
         cards1.sort(key=natural_keys)
         cards2 =  np.random.choice(key_list, size=round_idx, replace=False)
         [key_list.remove(card) for card in cards2]
-        cards2 = list(cards1)
+        cards2 = list(cards2)
         cards2.sort(key=natural_keys)
         self.player1.set_cards(cards1)
         self.player2.set_cards(cards2)
@@ -95,7 +103,11 @@ class Game(object):
             self.player2.token = False
         self.done = 0
 
-    def evalute_game(self, buffer_1, buffer_2, writer, step):
+        text = 'card1 {} cards2 {} trumph {}'
+        text = text.format(cards1, cards2, self.current_trumph)
+        write_into_file(text)
+
+    def evalute_game(self):
         """ If game is over add score to the player """
         
         if self.player1.current_wins == self.player1.estimate_wins:
@@ -103,15 +115,18 @@ class Game(object):
         
         if self.player2.current_wins == self.player2.estimate_wins:
             self.player2.score += 20 + (10 * self.player2.current_wins)
-        writer.add_scalar('Reward player 1', self.player1.score , step)
-        writer.add_scalar('Reward player 2', self.player2.score , step)
-
+        
         # print("Player 1 score {}".format(self.player1.score))
         # print("Player 2 score {}".format(self.player2.score))
         # print("Player 1 est {}".format(self.player1.estimate_wins))
-        if self.player2.estimate_wins == 1:
-            pass 
-            #print("Player 2 est {}".format(self.player2.estimate_wins))
+            
+        #print("Player 2 est {}".format(self.player2.estimate_wins))
+    def set_buffer(self, buffer_1, buffer_2, writer, step):
+        writer.add_scalar('Reward player 1', self.player1.score , step)
+        writer.add_scalar('Reward player 2', self.player2.score , step)
+        text = 'player1 score {} est {} startsgame {}'
+        text = text.format(self.player1.score, self.player1.estimate_wins, self.player1.token)
+        write_into_file(text)
         buffer_1_updated = []
         for traj in buffer_1:
             traj.append(self.player1.score)
@@ -170,7 +185,7 @@ class Game(object):
 
         return torch.Tensor(state_vector_1), torch.Tensor(state_vector_2)
     
-    def play_cards(self, player1_card, player2_card, round_idx):
+    def play_cards(self, player1_card, player2_card):
         """ compare cards and set winner of the current round
             if round is mod 2 the player 2 starts else player 1
         """
@@ -244,8 +259,8 @@ class Game(object):
                     # only player 2 has trumph
                     self.player1.current_wins +=1
                     self.player2.token = False
-             # case no tumph
             else:
+                # case no tumph of player 1
                 # check if same color
                 if played_color == player2_card[0]:
                     # check how is higher
@@ -256,9 +271,16 @@ class Game(object):
                         self.player2.token = True
                         self.player2.current_wins +=1
                 else:
-                    # different cards player2 wins
-                    self.player2.token = False
-                    self.player1.current_wins +=1
+                    # check if player 2 has trump
+                    if player2_card[0] == current_trumph:
+                        # print("won")
+                        self.player2.token = True
+                        self.player2.current_wins +=1
+                    else:
+                        # print("p1 starts with different color and p2 no trumph")
+                        self.player2.token = False
+                        self.player1.current_wins +=1
+
         #print("player 1 wins {} player2 wins {}".format(self.player1.current_wins, self.player2.current_wins))
                     
                 
@@ -307,7 +329,7 @@ def main(args):
                 else:
                     action_1  = agent1_act[i - 2].act_e_greedy(state_agent1)
                     action_2  = agent2_act[i - 2].act_e_greedy(state_agent2)
-                game.play_cards(action_1, action_2, i)
+                game.play_cards(action_1, action_2)
                 next_state_agent1, next_state_agent2 = game.create_state_vector(0)
                 buffer_1.append([state_agent1, action_1, next_state_agent1, game.done])
                 buffer_2.append([state_agent2, action_2, next_state_agent2, game.done])
@@ -318,7 +340,8 @@ def main(args):
                     agent2_est[0].learn(agent2_buffer[0])
                     #for agent, mem in  zip(agent1_est, agent1_buffer):
                         #agent.learn(mem)
-            buffer_1, buffer_2 = game.evalute_game(buffer_1, buffer_2, writer, total_time_steps)
+            game.evalute_game()
+            buffer_1, buffer_2 = game.set_buffer(buffer_1, buffer_2, writer, total_time_steps)
             eps = max(eps_end, eps_decay*eps)
             scores_window1.append(game.player1.score)
             scores_window2.append(game.player2.score)
