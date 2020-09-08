@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import re
+import matplotlib.pyplot as plt
 import sys
 from torch.utils.tensorboard import SummaryWriter
 import argparse
@@ -77,7 +78,8 @@ class Game(object):
         self.deck = deck 
         self.play_game = True
         self.size = args.state_size
-        np.random.seed(args.seed)
+        if args.seed == 0:
+            np.random.seed(args.seed)
 
     def reset_round(self, round_idx):
         """ round_idx indicates the amount of cards each player gets 
@@ -310,10 +312,10 @@ def main(args):
     #agent = Agent(state_size=8, action_size=4, seed=0)
     #agent1_est =[Agent(args.state_size, 2), Agent(args.state_size, 3)]
     #agent2_est =[Agent(args.state_size, 2), Agent(args.state_size, 3)]
-    agent1_est =[Agent(args.state_size, 2)]
-    agent2_est =[Agent(args.state_size, 2)]
-    agent1_act =[Agent(args.state_size, 2)]
-    agent2_act =[Agent(args.state_size, 2)]
+    agent1_est =[Agent(args.state_size, 2, args)]
+    agent2_est =[Agent(args.state_size, 2, args)]
+    agent1_act =[Agent(args.state_size, 2, args)]
+    agent2_act =[Agent(args.state_size, 2, args)]
     #agent1_buffer = [RandomMemory(args.buffer_size, args.batch_size), RandomMemory(args.buffer_size, args.batch_size)]
     #agent2_buffer = [RandomMemory(args.buffer_size, args.batch_size), RandomMemory(args.buffer_size, args.batch_size)]
     deck = createDeck()
@@ -323,10 +325,14 @@ def main(args):
     writer = SummaryWriter(tensorboard_name)
     scores_window1 = deque(maxlen=100) 
     scores_window2 = deque(maxlen=100) 
-    eps_end = 0.05
+    eps_end = 0.01
     eps = 1.
-    eps_decay = 0.99996
-
+    eps_decay = 0.999995
+    agent1_actions = []
+    agent2_actions = []
+    agent1_action_mean = []
+    agent2_action_mean = []
+    
     #writer = SummaryWriter()
     for ep in range(epochs):
         if ep % 1000 == 0:
@@ -336,9 +342,14 @@ def main(args):
             # print("start game with {} cards".format(i))
             buffer_1 = []
             buffer_2 = []
+            buffer_2_est = []
             game.reset_round(i)
             state_agent1, state_agent2 = game.create_state_vector(1)
-            game.set_estimate(agent1_est[i-1].act(state_agent1, eps), agent2_est[i-1].act(state_agent2, eps))
+            estimate1 =  agent1_est[i-1].act(state_agent1, eps) 
+            estimate2 = agent2_est[i-1].act(state_agent2, eps)
+            game.set_estimate(estimate1, estimate2)
+            agent1_actions.append(estimate1)
+            agent2_actions.append(estimate2)
             while game.play_game:
                 total_time_steps += 1
                 # action_1  = np.random.randint(len(game.player1.current_cards))
@@ -353,18 +364,28 @@ def main(args):
                 next_state_agent1, next_state_agent2 = game.create_state_vector(0)
                 buffer_1.append([state_agent1, action_1, next_state_agent1, 0])
                 buffer_2.append([state_agent2, action_2, next_state_agent2, 0])
+                buffer_2_est.append([state_agent2, estimate2, next_state_agent2, 0])
                 state_agent1 = next_state_agent1
                 state_agent2 = next_state_agent2
             game.evalute_game()
-            buffer_1, buffer_2 = game.set_buffer(buffer_1, buffer_2, writer, total_time_steps)
+            buffer_1, buffer_2 = game.set_buffer(buffer_1, buffer_2_est, writer, total_time_steps)
             eps = max(eps_end, eps_decay*eps)
             scores_window1.append(game.player1.score)
             scores_window2.append(game.player2.score)
             mean1 = np.mean(scores_window1)
             mean2 = np.mean(scores_window2)
+            if total_time_steps % 1000 == 0:
+                agent1_action_mean.append(np.mean(agent1_actions))
+                agent1_actions = []
+                print("agent 1 action mean ", agent1_action_mean[-1])
+                agent2_action_mean.append(np.mean(agent2_actions))
+                agent2_actions = []
+                print("agent 2 action mean ", agent2_action_mean[-1])
+                #plt.plot(agent1_actions)
+                #plt.show()
             text = 'Episode = {}:  P1  score {} P2 score {}'
             text = text.format(total_time_steps, game.player1.score, game.player2.score)
-            # print(text)
+            #print(text)
             
             text = 'Episode = {}:  P1  Avg Return = {:.2f} P2 Avg Reward {:.2f} eps {:.2f}'
             text = text.format(total_time_steps, mean1, mean2, eps)
@@ -373,14 +394,14 @@ def main(args):
             writer.add_scalar('Reward mean player 1', mean1 , total_time_steps)
             writer.add_scalar('Reward mean player 2', mean2 , total_time_steps)
             i = 0
-            for traj1, traj2 in zip(buffer_1, buffer_2):
-                #agent1_est[i].step(traj1[0], traj1[1], traj1[4], traj1[2], traj1[3])  # state action reward newstate done
-                #agent2_est[i].step(traj2[0], traj2[1], traj2[4], traj2[2], traj2[3])  # state action reward newstate done
+            for traj1, traj2 in zip(buffer_1, buffer_2_est):
+                agent1_est[i].step(traj1[0], traj1[1], traj1[4], traj1[2], traj1[3])  # state action reward newstate done
+                agent2_est[i].step(traj2[0], traj2[1], traj2[4], traj2[2], traj2[3])  # state action reward newstate done
                 # agent1_act[i].step(traj1[0], traj1[1], traj1[4], traj1[2], traj1[3])  # state action reward newstate done
                 #agent2_act[i].step(traj2[0], traj2[1], traj2[4], traj2[2], traj2[3])  # state action reward newstate done
+                # print("reward player 2 {} action {} ".format(traj2[4], traj2[1]))
                 break
                 i += 1
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Rainbow')
